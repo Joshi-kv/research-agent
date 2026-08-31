@@ -1,0 +1,36 @@
+# This is an application, not a distributable library: there is deliberately no
+# [build-system]. Nothing installs `research-agent` into site-packages, so the
+# flat modules under src/ (config, integrations, tools) never become top-level
+# names in an installed environment.
+#   run:    uvicorn main:app --app-dir src --reload
+#   tests:  pytest            (pythonpath below puts src/ on sys.path)
+
+[project]
+name = "research-agent"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.141.1",
+    "langchain>=1.3.18",
+    "langchain-community>=0.4.2",
+    "langchain-core>=1.6.1",
+    "langchain-groq>=1.1.3",
+    "langsmith>=0.11.2",
+    "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
+    "supabase>=2.31.0",
+    "tavily>=1.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+    "integration: exercises live external services (Supabase, Groq); deselected by default",
+]
+addopts = "-m 'not integration'"
