@@ -1,5 +1,7 @@
-// SSE client for the /research endpoint
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// SSE client for the /research endpoint.
+// Default to same-origin (Caddy reverse-proxies /research + /health to the
+// backend in production), falling back to localhost:8000 only in local dev.
+const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8000" : "");
 
 /**
  * Run a research topic through the pipeline and stream events back.

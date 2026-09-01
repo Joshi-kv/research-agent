@@ -1,0 +1,26 @@
+:{$PORT:80} {
+	# Serve the built SPA
+	root * /usr/share/caddy
+	encode gzip zstd
+
+	# API routes → backend. {$BACKEND_UPSTREAM} is injected via env (Render sets
+	# it to the backend service URL, e.g. https://backend.onrender.com); defaults
+	# to localhost for local compose. flush_interval -1 flushes SSE chunks so the
+	# research stream reaches the browser live (no buffering). A single @api
+	# matcher keeps all reverse_proxy routes in one handle block.
+	@api {
+		path /research*
+		path /health*
+	}
+	handle @api {
+		reverse_proxy {$BACKEND_UPSTREAM:http://backend:8000} {
+			flush_interval -1
+		}
+	}
+
+	# SPA: serve built assets with index.html fallback for client-side routes.
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}
