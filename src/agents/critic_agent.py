@@ -16,6 +16,9 @@ CRITIC_AGENT_SYSTEM_PROMPT = """
     - score is 1-10, where 10 means publishable as-is.
     - Be specific and actionable. No vague complaints, no essays.
     - suggestions must be concrete edits the writer can apply directly.
+    - Keep it tight: at most 3 items per list, one sentence each, and at most
+      two sentences of overall criticism. Report only the problems that would
+      actually change the article - every extra word is latency.
     """
 
 
@@ -23,15 +26,18 @@ class Critique(BaseModel):
     """Structured critique of a draft article."""
 
     score: int = Field(description="Quality score from 1 (unusable) to 10 (publishable).")
-    criticism: str = Field(description="Short overall assessment.")
+    criticism: str = Field(description="Overall assessment, at most two sentences.")
     accuracy_points: list[str] = Field(
-        default_factory=list, description="Factual problems and unsupported claims."
+        default_factory=list,
+        description="Factual problems and unsupported claims. At most 3.",
     )
     clarity_issues: list[str] = Field(
-        default_factory=list, description="Passages that are confusing or poorly ordered."
+        default_factory=list,
+        description="Passages that are confusing or poorly ordered. At most 3.",
     )
     suggestions: list[str] = Field(
-        default_factory=list, description="Concrete edits the writer should apply."
+        default_factory=list,
+        description="Concrete edits the writer should apply. At most 3.",
     )
 
 
@@ -48,9 +54,9 @@ class CriticAgent:
             ]
         )
 
-    def run(self, topic: str, article: str) -> Critique:
+    def run(self, topic: str, article: str, config: dict | None = None) -> Critique:
         chain = self.prompt | self.model
-        return chain.invoke({"topic": topic, "article": article})
+        return chain.invoke({"topic": topic, "article": article}, config=config)
 
 
 if __name__ == "__main__":

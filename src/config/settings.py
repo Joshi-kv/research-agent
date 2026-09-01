@@ -5,6 +5,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
+        # A .env accumulates keys for tools that read the environment directly.
+        # Rejecting them would make an unrelated leftover crash the app at boot.
+        extra="ignore",
     )
 
     # LLM
@@ -21,9 +24,14 @@ class Settings(BaseSettings):
     SUPABASE_JWT_KEY: str = ""
 
     # OBSERVABILITY
-    LANGSMITH_API_KEY: str = ""
-    LANGSMITH_TRACING: bool = False
-    LANGSMITH_PROJECT: str = "research-assistant"
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    # Point at a self-hosted deployment to keep traces on your own infra.
+    LANGFUSE_BASE_URL: str = "https://cloud.langfuse.com"
+    LANGFUSE_ENVIRONMENT: str = "development"
+    # Tracing turns itself on once both keys are set; flip this to false to keep
+    # it off without having to remove them.
+    LANGFUSE_TRACING: bool = True
     
     #APP
     CORS_ORIGINS: list[str] = []
