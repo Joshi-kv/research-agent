@@ -1,8 +1,13 @@
-# The `http://` scheme prefix is critical: it forces plain-HTTP mode even if
-# $PORT is missing or empty on the platform, so Caddy binds :80 (or the value
-# of $PORT) and never falls back to HTTPS/ACME (which would crash with exit
-# 255). `:{$PORT:80}` alone would adapt to :443 in that case.
-http://:{$PORT:80} {
+{
+	# Serve plain HTTP so Render can route to our container. This is critical:
+	# Caddy's default auto-HTTPS mode would try to obtain an ACME certificate
+	# for whatever host/port it binds and crash with exit 255. auto_https off
+	# guarantees plain HTTP on the injected $PORT no matter what value it is
+	# (Render sets it to a real port like 443 or 8080).
+	auto_https off
+}
+
+:{$PORT:8080} {
 	# Serve the built SPA
 	root * /usr/share/caddy
 	encode gzip zstd
