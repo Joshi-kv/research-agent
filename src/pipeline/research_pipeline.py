@@ -221,6 +221,9 @@ class ResearchPipeline:
 
 
 if __name__ == "__main__":
+    from integrations.langfuse_config import init_tracing, shutdown, trace_url
+
+    init_tracing()
     pipeline = ResearchPipeline(verbose=True)
     state = pipeline.run_state("What is LangGraph?")
     console.print(Rule("[bold green]Run summary[/bold green]"))
@@ -233,5 +236,7 @@ if __name__ == "__main__":
             "revisions": state.revisions,
             "article_chars": len(state.article),
             "errors": state.errors,
+            "trace": trace_url(state.trace_id),
         }
     )
+    shutdown()
