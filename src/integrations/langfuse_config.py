@@ -134,9 +134,38 @@ def update_trace(output=None, metadata: dict | None = None) -> None:
 
 
 def flush() -> None:
-    """Flush buffered spans. Langfuse batches, so shutdown must drain."""
+    """Flush buffered spans without tearing the client down.
+
+    Use mid-process (e.g. after a run) when more tracing will follow.
+    """
     if _client is not None:
         try:
             _client.flush()
         except Exception:
             logger.exception("Langfuse flush failed")
+
+
+def shutdown() -> None:
+    """Drain and stop the exporter. Call this before the process exits.
+
+    flush() only schedules the export - it does not wait for the in-flight HTTP
+    request. A short-lived process that calls flush() and exits immediately can
+    lose the whole batch, which is exactly how the first traced run here
+    vanished. shutdown() blocks until the spans are actually shipped.
+    """
+    if _client is not None:
+        try:
+            _client.shutdown()
+        except Exception:
+            logger.exception("Langfuse shutdown failed")
+
+
+def trace_url(trace_id: str | None) -> str | None:
+    """Deep link to a trace in the Langfuse UI, or None when untraced."""
+    if _client is None or not trace_id:
+        return None
+    try:
+        return _client.get_trace_url(trace_id=trace_id)
+    except Exception:
+        logger.exception("could not build Langfuse trace url")
+        return None

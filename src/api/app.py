@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.routes.health import router as health_router
 from api.routes.research import router as research_router
 from config.settings import get_settings
-from integrations.langfuse_config import flush, init_tracing
+from integrations.langfuse_config import init_tracing, shutdown
 
 
 @asynccontextmanager
@@ -14,8 +14,9 @@ async def lifespan(app: FastAPI):
     """Application lifespan — initialise tracing, flush on shutdown."""
     app.state.langfuse = init_tracing()
     yield
-    # Langfuse batches spans; without this the last requests never ship.
-    flush()
+    # Langfuse batches spans and flush() does not wait for the in-flight
+    # request, so a plain flush here can lose the last requests' traces.
+    shutdown()
 
 
 def create_app() -> FastAPI:
