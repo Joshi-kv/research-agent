@@ -1,4 +1,8 @@
-:{$PORT:80} {
+# The `http://` scheme prefix is critical: it forces plain-HTTP mode even if
+# $PORT is missing or empty on the platform, so Caddy binds :80 (or the value
+# of $PORT) and never falls back to HTTPS/ACME (which would crash with exit
+# 255). `:{$PORT:80}` alone would adapt to :443 in that case.
+http://:{$PORT:80} {
 	# Serve the built SPA
 	root * /usr/share/caddy
 	encode gzip zstd
