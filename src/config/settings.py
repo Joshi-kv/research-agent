@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     # LLM
     GROQ_API_KEY: str
+    GOOGLE_API_KEY: str
 
     # TOOLS
     TAVILY_API_KEY: str

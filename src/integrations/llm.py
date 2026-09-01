@@ -1,30 +1,45 @@
 from functools import lru_cache
 
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
 
 from config.settings import get_settings
 
-DEFAULT_ROLE = "synthesis"
+DEFAULT_PROVIDER = "google"
 
-MODEL_BY_ROLE = {
-    "search": "groq/compound",          # Groq's agentic model, built for tool use & search
-    "scrape": "qwen/qwen3.8-27b",       # Strong 27B model, good at extraction & structured reading
-    "synthesis": "openai/gpt-oss-120b",  # Largest available model, best for final synthesis
+MODEL_BY_PROVIDER = {
+    "google": "gemini-3.1-flash-lite",
+    "groq": "openai/gpt-oss-120b",
 }
 
 
 @lru_cache
-def get_llm(role: str = DEFAULT_ROLE, temperature: float = 0.0) -> ChatGroq:
-    """Return a cached ChatGroq client for the given role.
+def get_llm(
+    provider: str = DEFAULT_PROVIDER, temperature: float = 0.0
+) -> BaseChatModel:
+    """Return a cached chat model for the given provider.
 
-    Unknown roles fall back to the default model rather than constructing a
-    client with model=None, which fails only later at call time.
+    Unknown providers raise. The previous version fell through to Groq for any
+    string that was not exactly "google", so a typo silently swapped vendors and
+    only showed up as a different model in the response.
     """
-    model_name = MODEL_BY_ROLE.get(role, MODEL_BY_ROLE[DEFAULT_ROLE])
-    settings = get_settings()
+    model = MODEL_BY_PROVIDER.get(provider)
+    if model is None:
+        raise ValueError(
+            f"Unknown LLM provider {provider!r}. "
+            f"Expected one of: {', '.join(sorted(MODEL_BY_PROVIDER))}."
+        )
 
+    settings = get_settings()
+    if provider == "google":
+        return ChatGoogleGenerativeAI(
+            api_key=settings.GOOGLE_API_KEY,
+            model=model,
+            temperature=temperature,
+        )
     return ChatGroq(
-        model=model_name,
+        model=model,
         api_key=settings.GROQ_API_KEY,
         temperature=temperature,
     )
