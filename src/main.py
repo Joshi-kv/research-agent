@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config.settings import get_settings
 from integrations.langsmith_config import init_tracing
-from integrations.llm import get_llm
+from integrations.llm import DEFAULT_PROVIDER, MODEL_BY_PROVIDER, get_llm
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ def create_app() -> FastAPI:
     async def health_deep():
         """Readiness probe. Calls out to every dependency, including the LLM.
 
-        Costs a Groq request, so this is deliberately not the endpoint a load
+        Costs one LLM request, so this is deliberately not the endpoint a load
         balancer polls.
         """
         checks: dict[str, dict] = {}
@@ -77,14 +77,17 @@ def create_app() -> FastAPI:
             checks["supabase"] = {"status": "error"}
             overall = "degraded"
 
-        # --- LLM (Groq) ---
+        # --- LLM ---
+        # Probe the provider the app actually runs on. Naming a role here (the
+        # old "synthesis") silently fell through to the other vendor.
         t0 = time.monotonic()
         try:
-            llm = get_llm("synthesis")
+            llm = get_llm()
             await llm.ainvoke("ping")
             checks["llm"] = {
                 "status": "ok",
-                "model": llm.model_name,
+                "provider": DEFAULT_PROVIDER,
+                "model": MODEL_BY_PROVIDER[DEFAULT_PROVIDER],
                 "latency_ms": round((time.monotonic() - t0) * 1000, 1),
             }
         except Exception:
