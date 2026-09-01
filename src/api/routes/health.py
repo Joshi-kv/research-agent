@@ -5,6 +5,7 @@ import httpx
 from fastapi import APIRouter, Request
 
 from config.settings import get_settings
+from integrations.langfuse_config import get_langfuse
 from integrations.llm import DEFAULT_PROVIDER, MODEL_BY_PROVIDER, get_llm
 
 logger = logging.getLogger(__name__)
@@ -64,11 +65,14 @@ async def health_deep(request: Request):
         checks["llm"] = {"status": "error"}
         overall = "degraded"
 
-    # --- LangSmith ---
-    checks["langsmith"] = {
-        "status": "ok" if settings.LANGSMITH_API_KEY else "disabled",
-        "tracing": settings.LANGSMITH_TRACING,
-        "project": settings.LANGSMITH_PROJECT,
+    # --- Langfuse ---
+    # init_tracing() already ran auth_check at startup, so a live client here
+    # means the credentials were accepted, not merely present.
+    checks["langfuse"] = {
+        "status": "ok" if get_langfuse() else "disabled",
+        "tracing": settings.LANGFUSE_TRACING,
+        "base_url": settings.LANGFUSE_BASE_URL,
+        "environment": settings.LANGFUSE_ENVIRONMENT,
     }
 
     return {"status": overall, "version": request.app.version, "checks": checks}

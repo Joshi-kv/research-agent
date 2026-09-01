@@ -72,14 +72,21 @@ class WriterAgent:
         )
         self.output_parser = StrOutputParser()
 
-    def run(self, topic: str, research_content: str, critique: str = "") -> str:
+    def run(
+        self,
+        topic: str,
+        research_content: str,
+        critique: str = "",
+        config: dict | None = None,
+    ) -> str:
         chain = self.prompt | self.model | self.output_parser
         return chain.invoke(
             {
                 "topic": topic,
                 "research_content": research_content,
                 "critique": critique,
-            }
+            },
+            config=config,
         )
 
 

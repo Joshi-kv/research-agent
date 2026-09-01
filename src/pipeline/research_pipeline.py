@@ -7,6 +7,8 @@ from agents.critic_agent import CriticAgent, Critique
 from agents.scrape_agent import scrape_agent
 from agents.search_agent import search_agent
 from agents.writer_agent import WriterAgent
+from integrations.langfuse_config import callbacks, trace_run, update_trace
+from tools.store import ResearchStore, use_store
 
 console = Console()
 
@@ -21,10 +23,13 @@ class ResearchState(BaseModel):
     topic: str
     sources: str = ""
     research: str = ""
+    documents: int = 0
+    failed_sources: dict[str, str] = Field(default_factory=dict)
     draft: str = ""
     critique: Critique | None = None
     final: str = ""
     revisions: int = 0
+    trace_id: str | None = None
     errors: list[str] = Field(default_factory=list)
 
     @property
@@ -40,7 +45,7 @@ def _final_text(agent_output: dict) -> str:
     metadata and all - into the next prompt as if it were research.
     """
     messages: list[BaseMessage] = agent_output.get("messages", [])
-    return messages[-1].text() if messages else ""
+    return messages[-1].text if messages else ""
 
 
 def _format_critique(critique: Critique) -> str:
@@ -72,6 +77,15 @@ class ResearchPipeline:
 
     # ── logging ────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _config(step: str, **metadata) -> dict:
+        """Runnable config that files this step under the run's Langfuse trace."""
+        return {
+            "run_name": step,
+            "callbacks": callbacks(),
+            "metadata": {"step": step, **metadata},
+        }
+
     def _log(self, title: str, content: str = ""):
         if not self.verbose:
             return
@@ -82,56 +96,73 @@ class ResearchPipeline:
 
     # ── steps: state in, state out ─────────────────────────────────────────
 
-    def search(self, state: ResearchState) -> ResearchState:
+    def search(self, state: ResearchState, store: ResearchStore) -> ResearchState:
         self._log(f"🔍 Search — {state.topic}")
         state.sources = _final_text(
             self.search_agent.invoke(
-                {"messages": [{"role": "user", "content": state.topic}]}
+                {"messages": [{"role": "user", "content": state.topic}]},
+                config=self._config("search", topic=state.topic),
             )
         )
         self._log("Sources", state.sources)
         return state
 
-    def scrape(self, state: ResearchState) -> ResearchState:
+    def scrape(self, state: ResearchState, store: ResearchStore) -> ResearchState:
         self._log("🌐 Scrape")
-        state.research = _final_text(
+        report = _final_text(
             self.scrape_agent.invoke(
                 {
                     "messages": [
                         {
                             "role": "user",
                             "content": (
-                                "Scrape every URL listed below and return the "
-                                f"extracted content for each.\n\n{state.sources}"
+                                "Gather source material for this topic: "
+                                f"{state.topic}\n\n"
+                                "Candidate sources found so far:\n"
+                                f"{state.sources}"
                             ),
                         }
                     ]
-                }
+                },
+                config=self._config("scrape"),
             )
         )
-        self._log("Research", state.research)
+        # The agent decides what to fetch and what to retry; the text itself
+        # comes from the store. Reading it out of the agent's message would make
+        # the model re-emit every scraped page as output tokens.
+        state.research = store.as_research_text()
+        state.documents = len(store.documents)
+        state.failed_sources = dict(store.failures)
+        self._log(
+            f"Research — {state.documents} sources, {store.total_chars} chars",
+            report,
+        )
         return state
 
-    def write(self, state: ResearchState) -> ResearchState:
+    def write(self, state: ResearchState, store: ResearchStore) -> ResearchState:
         # Write first, then critique the draft. Critiquing raw scrape output and
         # feeding the critique to the writer meant the article was written from
         # a review document and never saw the research itself.
         self._log("✍️  Write draft")
         state.draft = self.writer_agent.run(
-            topic=state.topic, research_content=state.research
+            topic=state.topic,
+            research_content=state.research,
+            config=self._config("write", sources=state.documents),
         )
         self._log("Draft", state.draft)
         return state
 
-    def critique(self, state: ResearchState) -> ResearchState:
+    def critique(self, state: ResearchState, store: ResearchStore) -> ResearchState:
         self._log("🧐 Critique")
         state.critique = self.critic_agent.run(
-            topic=state.topic, article=state.draft
+            topic=state.topic,
+            article=state.draft,
+            config=self._config("critique"),
         )
         self._log("Feedback", _format_critique(state.critique))
         return state
 
-    def revise(self, state: ResearchState) -> ResearchState:
+    def revise(self, state: ResearchState, store: ResearchStore) -> ResearchState:
         if state.critique is None or state.critique.score >= self.accept_score:
             score = state.critique.score if state.critique else "n/a"
             self._log(f"✅ Draft accepted (score {score})")
@@ -142,6 +173,7 @@ class ResearchPipeline:
             topic=state.topic,
             research_content=state.research,
             critique=_format_critique(state.critique),
+            config=self._config("revise", score=state.critique.score),
         )
         state.revisions += 1
         self._log("Final Article", state.final)
@@ -156,13 +188,31 @@ class ResearchPipeline:
         - the sources, the critic's score, which steps failed.
         """
         state = ResearchState(topic=topic)
-        for step in (self.search, self.scrape, self.write, self.critique, self.revise):
-            try:
-                state = step(state)
-            except Exception as e:
-                state.errors.append(f"{step.__name__}: {e}")
-                self._log(f"❌ {step.__name__} failed", str(e))
-                break
+        steps = (self.search, self.scrape, self.write, self.critique, self.revise)
+        # One store per run, bound to a ContextVar so the tools can reach it
+        # without the agents having to be rebuilt for every request.
+        # One trace per run, so search/scrape/write/critique/revise appear as
+        # nested spans instead of five unrelated root runs.
+        with trace_run("research", input={"topic": topic}, tags=["research"]) as tid:
+            state.trace_id = tid
+            with use_store(ResearchStore()) as store:
+                for step in steps:
+                    try:
+                        state = step(state, store)
+                    except Exception as e:
+                        state.errors.append(f"{step.__name__}: {e}")
+                        self._log(f"❌ {step.__name__} failed", str(e))
+                        break
+            update_trace(
+                output={"article": state.article},
+                metadata={
+                    "sources_used": state.documents,
+                    "sources_failed": list(state.failed_sources),
+                    "score": state.critique.score if state.critique else None,
+                    "revisions": state.revisions,
+                    "errors": state.errors,
+                },
+            )
         return state
 
     def run(self, topic: str) -> str:
@@ -177,6 +227,8 @@ if __name__ == "__main__":
     console.print(
         {
             "topic": state.topic,
+            "sources_used": state.documents,
+            "sources_failed": list(state.failed_sources),
             "score": state.critique.score if state.critique else None,
             "revisions": state.revisions,
             "article_chars": len(state.article),

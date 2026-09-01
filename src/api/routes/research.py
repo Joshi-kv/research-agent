@@ -74,6 +74,7 @@ def _run_pipeline(
             "article":   state.article,
             "critique":  critique_data,
             "revisions": state.revisions,
+            "trace_id":  state.trace_id,
             "errors":    state.errors,
         })
     except Exception as exc:

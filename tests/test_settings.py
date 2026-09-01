@@ -13,10 +13,12 @@ def test_settings_has_groq_api_key():
     assert hasattr(settings, "GROQ_API_KEY")
 
 
-def test_settings_has_langsmith_api_key():
-    """Test that settings contains LANGSMITH_API_KEY."""
+def test_settings_has_langfuse_keys():
+    """Test that settings contains the Langfuse credentials."""
     settings = get_settings()
-    assert hasattr(settings, "LANGSMITH_API_KEY")
+    assert hasattr(settings, "LANGFUSE_PUBLIC_KEY")
+    assert hasattr(settings, "LANGFUSE_SECRET_KEY")
+    assert hasattr(settings, "LANGFUSE_BASE_URL")
 
 
 def test_settings_has_tavily_api_key():

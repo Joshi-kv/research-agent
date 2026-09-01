@@ -1,9 +1,13 @@
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 import trafilatura
 from bs4 import BeautifulSoup
 from langchain.tools import tool
+
+from tools.store import Document as StoredDocument
+from tools.store import current_store
 
 # pyrefly: ignore [missing-import]
 from readability import Document
@@ -35,8 +39,7 @@ def _strip_tags(html: str) -> str:
     return soup.get_text(separator=" ", strip=True)
 
 
-@tool
-def scrape_webpage(url: str, max_chars: int = 10_000) -> dict:
+def scrape_page(url: str, max_chars: int = 10_000) -> dict:
     """
     Scrape and extract the main readable text content from any public webpage URL.
 
@@ -123,12 +126,69 @@ def scrape_webpage(url: str, max_chars: int = 10_000) -> dict:
         return {"ok": False, "url": url, "error": f"Could not parse page: {e}"}
 
 
+@tool
+def scrape_webpages(urls: list[str], max_chars: int = 10_000) -> list[dict]:
+    """
+    Scrape several webpages at once and record their content for this run.
+
+    Pass every URL you want in ONE call - they are fetched in parallel, so ten
+    URLs cost about as long as the slowest one.
+
+    You get back a short receipt per URL, not the page text. The full text is
+    stored for the run and handed to the writer automatically. Do NOT ask for
+    the text and do NOT repeat page content back in your answer - judge the
+    receipts and say what you gathered.
+
+    Args:
+        urls: Full URLs to scrape (each must start with http:// or https://).
+        max_chars: Maximum characters to keep per page. Defaults to 10,000.
+
+    Returns:
+        One receipt per URL:
+          {"ok": True, "url": ..., "chars": int, "strategy": ..., "preview": ...}
+          {"ok": False, "url": ..., "error": ...}
+        Use them to decide what to do next: an "ok": false result or a very low
+        "chars" count means that source is unusable, so search again or scrape
+        different URLs rather than proceeding with thin research.
+    """
+    store = current_store()
+    titles = {r.get("url"): r.get("title", "") for r in store.results}
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda u: scrape_page(u, max_chars), urls))
+
+    receipts = []
+    for url, result in zip(urls, results):
+        if not result.get("ok"):
+            store.add_failure(url, result.get("error", "unknown error"))
+            receipts.append(result)
+            continue
+        text = result["text"]
+        store.add_document(
+            StoredDocument(
+                url=url,
+                text=text,
+                strategy=result["strategy"],
+                title=titles.get(url, ""),
+            )
+        )
+        receipts.append(
+            {
+                "ok": True,
+                "url": url,
+                "chars": len(text),
+                "strategy": result["strategy"],
+                "preview": text[:200],
+            }
+        )
+    return receipts
+
+
 if __name__ == "__main__":
     from rich import print
 
-    print("Calling scrape_webpage ........ ")
-    print(
-        scrape_webpage.invoke(
-            {"url": "https://www.geeksforgeeks.org/machine-learning/what-is-langgraph/"}
-        )
+    print("Calling scrape_page ........ ")
+    result = scrape_page(
+        "https://www.geeksforgeeks.org/machine-learning/what-is-langgraph/"
     )
+    print({k: v for k, v in result.items() if k != "text"})
