@@ -1,0 +1,26 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - PORT=8000
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    environment:
+      # Listen on a fixed port locally and proxy the API to the backend service
+      - PORT=80
+      - BACKEND_UPSTREAM=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
